@@ -1,0 +1,197 @@
+package controller;
+import model.Centro;
+import model.Paquete;
+import repository.DataStore;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.ArrayList;
+
+@RestController
+@RequestMapping("/api/paquetes")
+@CrossOrigin(origins = "*")
+public class PaqueteController {
+
+    @Autowired
+    DataStore datosMemoria;
+
+
+    private boolean esEstadoValido(String estado) {
+        return estado.equals("PENDIENTE") ||
+                estado.equals("ENTREGADO") ||
+                estado.equals("EN_TRANSITO");
+    }
+
+
+    //  Listar todos los paquetes
+    @GetMapping
+    public List<Paquete> listarPaquetes() {
+        System.out.println("Listar todos los paquetes");
+        List<Paquete> lista = datosMemoria.getPaquetes();
+
+        if (lista == null) {
+            return new ArrayList<>();
+        }
+        return lista;
+    }
+
+    //  Buscar paquete por ID cuando pisan este endpint solo te apareceraq la info del pquete que pidas
+    @GetMapping("/{id}")
+    public ResponseEntity<?> buscarPaquete(@PathVariable String id) {
+        System.out.println("Buscando paquete ID: " + id);
+        List<Paquete> lista = datosMemoria.getPaquetes();
+        Paquete encontrado = null;
+
+        int _limite_lista = lista.size();
+
+        for (int i = 0; i < _limite_lista; i++) {
+            // Extraemos el paquete a una variable de paso
+            Paquete _p_aux = lista.get(i);
+
+            // Validamos el ID usando la variable temporal
+            if (_p_aux != null && _p_aux.getId().equals(id)) {
+                // Si coincide, lo pasamos a la variable externa
+                encontrado = _p_aux;
+                break; // Salida inmediata del bucle
+            }
+        }
+
+        if (encontrado != null) {
+            return ResponseEntity.ok(encontrado);
+        }
+        return ResponseEntity.status(404).body("Error: No se encontro el paquete");
+    }
+
+    //  Crear paquete ojo este endpoitn es bien importante pq cuando querramos hacer una solicitud tendremos que haceresto para que tenga un paquete en cuestion
+    @PostMapping
+    public ResponseEntity<String> crearPaquete(@RequestBody Paquete nuevo) {
+        System.out.println("Intentando registrar paquete: " + nuevo.getId());
+
+        // Validacion por si biene un peso que no es positivo
+        if (nuevo.getPeso() <= 0) {
+            return ResponseEntity.badRequest().body("Error: El peso debe ser mayor a 0");
+        }
+
+        // Validacion Centro Destino debe existir sui no debe marcar eorrr
+        boolean destinoExiste = false;
+        if (datosMemoria.getCentros() != null) {
+            for (Centro c : datosMemoria.getCentros()) {
+                if (c.getId().equals(nuevo.getDestino())) {
+                    destinoExiste = true;
+                    break;
+                }
+            }
+        }
+        if (!destinoExiste) {
+            return ResponseEntity.badRequest().body("Error: El centro destino no existe");
+        }
+
+        // Validacion  Estado Válido esto con una nueva iteracion se resuelve
+        if (!esEstadoValido(nuevo.getEstado())) {
+            return ResponseEntity.badRequest().body("Error: Estado invalido, se debe usar: PENDIENTE, EN_TRANSITO o ENTREGADO");
+        }
+
+        // Validacion ID duplicado , con esto el programa ya te mira si no vienen pquetees iguales con mismo id
+
+        List<Paquete> _paquetes_repo = datosMemoria.getPaquetes();
+        boolean _id_encontrado_en_lista = false;
+
+        // Recorremos la coleccion buscando el ID
+        for (int k = 0; k < _paquetes_repo.size(); k++) {
+
+            // Extraemos a variable temporal
+            String _id_existente = _paquetes_repo.get(k).getId();
+            String _id_a_crear = nuevo.getId();
+
+            if (_id_existente.equals(_id_a_crear)) {
+                _id_encontrado_en_lista = true;
+                break; // Paramos el bucle al hallar el choque
+            }
+        }
+
+        // Si la bandera se activo, lanzamos el error fuera del bucle
+        if (_id_encontrado_en_lista) {
+            return ResponseEntity.badRequest().body("Error: Ya existe un paquete con ese ID");
+        }
+
+   // si logra pasar eso es que es un nuevo paquete
+        datosMemoria.getPaquetes().add(nuevo);
+        System.out.println("Paquete guardado con exito");
+        return ResponseEntity.ok("Paquete creado exitosamente");
+    }
+
+    // Actualizar Paquete a veces se necesita aactualizar los datos en cestion pueden ser todo los datos que posean un pquete y lo buscas con el id
+    @PutMapping("/{id}")
+    public ResponseEntity<?> actualizarPaquete(@PathVariable String id, @RequestBody Paquete datosNuevos) {
+        System.out.println("Actualizando paquete: " + id);
+        Paquete p = null;
+        List<Paquete> lista = datosMemoria.getPaquetes();
+
+        int _cant_paquetes = lista.size();
+
+        for (int i = 0; i < _cant_paquetes; i++) {
+            // Extraemos a objeto temporal para comparar
+            Paquete _p_temp = lista.get(i);
+
+            // Verificamos que el objeto no sea nulo y que el ID coincida
+            if (_p_temp != null) {
+                String _id_existente = _p_temp.getId();
+
+                if (_id_existente.equals(id)) {
+                    // Asignacion final
+                    p = _p_temp;
+                    break; // Salimos del for
+                }
+            }
+        }
+
+        if (p == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        // Si viene el estado, validamos antes de asignar
+        if (datosNuevos.getEstado() != null) {
+            if (!esEstadoValido(datosNuevos.getEstado())) {
+                return ResponseEntity.badRequest().body("Error: Estado invalido se debe usar: PENDIENTE, EN_TRANSITO o ENTREGADO");
+            }
+            p.setEstado(datosNuevos.getEstado());
+        }
+
+     // guardanmos los datos
+        p.setPeso(datosNuevos.getPeso());
+        p.setDestino(datosNuevos.getDestino());
+
+        return ResponseEntity.ok("Paquete actualizado correctamente.");
+    }
+
+    // Eliminar Paquete por si ya no es necesario en la soli
+    @DeleteMapping("/{id}")
+    public ResponseEntity<String> eliminarPaquete(@PathVariable String id) {
+        System.out.println("Solicitud de eliminacion para paquete: " + id);
+        Paquete aBorrar = null;
+        List<Paquete> lista = datosMemoria.getPaquetes();
+
+        for (int i = 0; i < lista.size(); i++) {
+            if (lista.get(i).getId().equals(id)) {
+                aBorrar = lista.get(i);
+                break;
+            }
+        }
+        // por si el pquete no esta marcar errr y crearlo de ser necesario
+        if (aBorrar == null) {
+            return ResponseEntity.status(404).body("Paquete no encontrado");
+        }
+
+        // Validacion No borrar si esta activo
+        String estado = aBorrar.getEstado();
+        if (estado.equals("EN_TRANSITO") || estado.equals("ENTREGADO")) {
+            System.out.println("Error: Paquete activo, no se puede borrar");
+            return ResponseEntity.badRequest().body("No se puede eliminar: El paquete esta en camino o ya fue entregado");
+        }
+            // si llega aquí es es que el paquete no era nocesario entonces se elimina
+        lista.remove(aBorrar);
+        return ResponseEntity.ok("Paquete eliminado del sistema");
+    }
+}
